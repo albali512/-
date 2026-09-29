@@ -12,7 +12,13 @@ def select(Pt, theta=1.2, pmin=0.0, k=9, race_pmin=0.0, pmax_odds=None, min_n=0)
     return d
 
 
+def settle(bets):
+    """Drop refunded tickets (a horse scratched/excluded after the decision time)."""
+    return bets[bets.void == 0] if 'void' in bets else bets
+
+
 def evaluate(bets, label='', days=None):
+    bets = settle(bets)
     if len(bets) == 0:
         return dict(label=label, races=0)
     r = bets.groupby('rid').agg(n=('pm', 'size'), ret=('payout', 'sum'), hit=('hit', 'max'), cov=('pm', 'sum'))
@@ -29,6 +35,7 @@ def evaluate(bets, label='', days=None):
 
 def day_bootstrap(bets, n=5000, seed=928):
     rng = np.random.default_rng(seed)
+    bets = settle(bets)
     b = bets.assign(day=bets.rid.str[:8])
     g = b.groupby('day').agg(st=('pm', 'size'), ret=('payout', 'sum'))
     st, ret = g.st.values * 100, g.ret.values

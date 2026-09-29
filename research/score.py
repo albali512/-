@@ -12,9 +12,9 @@ def build(S):
 
 
 def score(H, P, train_months, test_months, feats='MKT+AI'):
-    Htr = H[H.rid.isin(set(P[P.month.isin(train_months)].rid))]
+    Htr = H[H.rid.isin(set(P[P.month.isin(train_months)].rid)) & ~H.void]
     m = PL2(FEATS[feats]).fit(Htr)
-    pr = Price().fit(P[P.month.isin(train_months)])
+    pr = Price().fit(P[P.month.isin(train_months) & (P.void == 0)])
     Pt = P[P.month.isin(test_months)].copy()
     rows = []
     Hte = H[H.rid.isin(set(Pt.rid))]

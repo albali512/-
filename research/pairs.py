@@ -4,7 +4,8 @@ from common import load, horse_features, quinella_hits, harville_pairs
 S = sys.argv[1]
 R, H = load(S)
 H = horse_features(H, 'T5')
-H3 = horse_features(pd.read_parquet(f'{S}/data/horses.parquet').query('rid in @R.rid'), 'T3')[['rid', 'horse_no', 'p_mkt']].rename(columns={'p_mkt': 'p_mkt3'})
+H3 = horse_features(pd.read_parquet(f'{S}/data/horses.parquet').query('rid in @R.rid'), 'T5')[['rid', 'horse_no']]
+H3 = H3.merge(horse_features(pd.read_parquet(f'{S}/data/horses.parquet').query('rid in @R.rid'), 'T3')[['rid', 'horse_no', 'p_mkt']].rename(columns={'p_mkt': 'p_mkt3'}), on=['rid', 'horse_no'], how='left')
 H = H.merge(H3, on=['rid', 'horse_no'], how='left')
 QF = pd.read_parquet(f'{S}/data/quinella_final.parquet')
 EX = pd.read_parquet(f'{S}/data/exacta_ts.parquet')
@@ -39,8 +40,9 @@ for rid, g in H.groupby('rid'):
         for j in range(i + 1, len(nos)):
             a, b = sorted((int(nos[i]), int(nos[j])))
             fs = frozenset((a, b))
-            rows.append((rid, a, b, P[i, j], P3[i, j], PQ[i, j], PQ3[i, j], int(fs in hit), hit.get(fs, 0)))
-Pp = pd.DataFrame(rows, columns=['rid', 'a', 'b', 'ph5', 'ph3', 'pq5', 'pq3', 'hit', 'payout'])
+            void = int(bool(g.void.values[i]) or bool(g.void.values[j]))
+            rows.append((rid, a, b, P[i, j], P3[i, j], PQ[i, j], PQ3[i, j], int(fs in hit), hit.get(fs, 0), void))
+Pp = pd.DataFrame(rows, columns=['rid', 'a', 'b', 'ph5', 'ph3', 'pq5', 'pq3', 'hit', 'payout', 'void'])
 Pp = Pp.merge(QF, on=['rid', 'a', 'b'], how='left')
 for t in ['T5', 'T3', 'T10', 'FINAL']:
     e1 = EX[['rid', 'first_no', 'second_no', f'ex_{t}']].rename(columns={'first_no': 'a', 'second_no': 'b', f'ex_{t}': 'x1'})

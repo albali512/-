@@ -17,7 +17,10 @@ def load(S):
 def horse_features(H, t='T5'):
     """Per-horse PIT features. Only T-x market data + AI NAVI (fixed pre-race)."""
     H = H.copy()
-    H['scr'] = H.scratched.fillna(False).astype(bool)
+    # PIT: a horse is a non-runner only if it has no odds at T-x. Later scratches/exclusions are
+    # kept in the model and their tickets are refunded at settlement ('void').
+    H['void'] = H.scratched.fillna(False).astype(bool)
+    H['scr'] = ~(H[f'win_odds_{t}'] > 0)
     live = ~H.scr
     wo = H[f'win_odds_{t}'].where(live)
     H['q_mkt'] = (1 / wo).where(wo > 0)
