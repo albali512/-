@@ -3,13 +3,14 @@ import sys, json, itertools, numpy as np, pandas as pd
 S = sys.argv[1] if len(sys.argv) > 1 else '.'
 
 
-def load_targets(S):
+def load_targets(S, scope='target'):
     R = pd.read_parquet(f'{S}/data/races.parquet')
     H = pd.read_parquet(f'{S}/data/horses.parquet')
     R['last'] = R.groupby(['date', 'venue']).race_no.transform('max')
     R['wd'] = pd.to_datetime(R.date).dt.dayofweek
     R['slot'] = np.where(R.race_no == R['last'], 'FINAL', np.where(R.race_no == R['last'] - 1, 'MAIN', ''))
-    T = R[(R.slot != '') & (R.wd <= 4) & R.has_result & (R.n_trio > 0)].copy()
+    keep = (R.slot != '') & (R.wd <= 4) if scope == 'target' else True
+    T = R[keep & R.has_result & (R.n_trio > 0)].copy()
     T['month'] = T.date.str[:6]
     H = H[H.rid.isin(set(T.rid))].copy()
     # PIT: 取消 is announced before purchase -> removed and ranks recomputed; 除外 (at the gate) -> refund
