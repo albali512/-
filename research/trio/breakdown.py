@@ -64,7 +64,9 @@ for scope in ['target', 'all']:
     for name, d in D.items():
         d = d.assign(venue=d.rid.map(venue))
         d['group'] = np.where(d.venue.isin(NANKAN), '南関', 'その他'); d['region'] = d.venue.map(REGION)
-        for lvl in ['group', 'region', 'venue']:
+        d['slot'] = d.rid.map(T.set_index('rid').slot) if scope == 'target' else ''
+        d['slot_group'] = d.slot + '_' + d.group
+        for lvl in (['slot', 'slot_group'] if scope == 'target' else []) + ['group', 'region', 'venue']:
             for k, g in d.groupby(lvl):
                 s = agg(g); s['scope'] = scope; s['strategy'] = name; s['level'] = lvl; s['key'] = k; rows.append(s)
         s = agg(d); s['scope'] = scope; s['strategy'] = name; s['level'] = 'total'; s['key'] = '全体'; rows.append(s)
