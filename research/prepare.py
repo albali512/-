@@ -17,13 +17,15 @@ for f in sorted(glob.glob(f'{RAW}/*.json')):
             res = r.get('result') or {}
             pay = res.get('payouts') or {}
             q = pay.get('quinella') or []
+            tr = pay.get('trio') or []
             rid = f"{date}_{venue}_{int(r['raceNumber']):02d}"
             rrows.append(dict(rid=rid, date=date, venue=venue, race_no=int(r['raceNumber']),
                               distance=r.get('distance'), surface=r.get('surface'),
                               race_class=r.get('raceClass') or '', race_name=r.get('raceName') or '',
                               has_result=bool(res), status=res.get('status'),
                               quinella=json.dumps([[sorted(x['combination']), x['amount']] for x in q]),
-                              n_quinella=len(q), src=os.path.basename(f)))
+                              n_quinella=len(q), src=os.path.basename(f),
+                              trio=json.dumps([[sorted(x['combination']), x['amount']] for x in tr]), n_trio=len(tr)))
             resh = {h['horseNumber']: h for h in res.get('horses', [])}
             for h in r['horses']:
                 rh = resh.get(h['horseNumber'], {})
@@ -90,7 +92,8 @@ pbq = pb.set_index('rid')
 for rid in fb:
     x = pbq.loc[rid]
     q = [[sorted([int(x['馬複組番1']), int(x['馬複組番2'])]), int(x['馬複払戻金（円）'])]] if pd.notna(x['馬複払戻金（円）']) else []
-    R.loc[R.rid == rid, ['quinella', 'n_quinella', 'has_result', 'status']] = [json.dumps(q), len(q), True, 'csv']
+    t = [[sorted(int(x[f'３連複組番馬番{i}']) for i in (1, 2, 3)), int(x['３連複払戻金（円）'])]] if pd.notna(x['３連複払戻金（円）']) else []
+    R.loc[R.rid == rid, ['quinella', 'n_quinella', 'has_result', 'status', 'trio', 'n_trio']] = [json.dumps(q), len(q), True, 'csv', json.dumps(t), len(t)]
 HM = HM.merge(hl, on=['rid', 'horse_no'], how='left')
 m = HM.rid.isin(set(fb))
 HM.loc[m, 'finish'] = HM.loc[m, 'csv_finish']

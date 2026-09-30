@@ -1,0 +1,28 @@
+{
+ "version": "trio_v1.0",
+ "train": "2026-07-15..2026-08-31 (all races)",
+ "features": [
+  "la",
+  "lap",
+  "pi",
+  "vi"
+ ],
+ "feature_def": {
+  "la": "log normalized 1/fairWinOdds",
+  "lap": "log normalized 1/fairPlaceOdds",
+  "pi": "placeAbilityIndex/100",
+  "vi": "valueIndex/100"
+ },
+ "b": [
+  0.555852,
+  0.841657,
+  -0.196003,
+  -0.086663
+ ],
+ "lam": 0.6795,
+ "rule": {
+  "target": "weekday (Mon-Fri) final race and the race before it, per venue",
+  "K": 20,
+  "min_coverage": 0.55
+ }
+}
