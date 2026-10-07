@@ -1,0 +1,102 @@
+const $ = (id) => document.getElementById(id);
+const fmt = (d) => d.toISOString().slice(0, 10);
+const SUP_KEYS = ['斤量', '騎手', '最終角巧者', 'スタート巧者', '馬との相性', '馬番勝率', '先行力', '末脚', 'あがり', '調子'];
+
+async function init() {
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  const saved = (await chrome.storage.local.get('settings')).settings || {};
+  $('start').value = saved.start || fmt(y); $('end').value = saved.end || fmt(y);
+  $('delay').value = saved.delay || 8; $('skip').checked = saved.skip !== false; $('passive').checked = !!saved.passiveCapture;
+  const venues = await chrome.runtime.sendMessage({ type: 'venues' });
+  for (const [code, name] of venues) {
+    const l = document.createElement('label');
+    l.innerHTML = `<input type="checkbox" value="${code}" ${saved.venues && saved.venues.includes(code) ? 'checked' : ''}> ${name}`;
+    $('venues').appendChild(l);
+  }
+  render(); setInterval(render, 1000);
+}
+
+function selectedVenues() { return Array.from(document.querySelectorAll('#venues input:checked')).map((i) => i.value); }
+
+async function saveSettings() {
+  await chrome.storage.local.set({ settings: { start: $('start').value, end: $('end').value, delay: +$('delay').value,
+    skip: $('skip').checked, passiveCapture: $('passive').checked, venues: selectedVenues() } });
+}
+
+async function render() {
+  const { state, raceIndex } = await chrome.storage.local.get(['state', 'raceIndex']);
+  const n = (raceIndex || []).length;
+  if (!state) { $('status').textContent = `待機中 / 保存済み ${n}レース`; return; }
+  const c = state.counts || {};
+  $('status').textContent = `${state.running ? (state.paused ? '一時停止中' : '収集中') : '停止'} / 残り ${state.queue.length}件（開催確認を含む）\n` +
+    `取得 ${c.ok || 0} / データなし ${c.empty || 0} / スキップ ${c.skipped || 0} / 応答なし ${c.timeout || 0}\n保存済み合計 ${n}レース`;
+  $('paused').textContent = state.paused || '';
+  $('log').textContent = (state.log || []).join('\n');
+}
+
+async function loadRaces() {
+  const { raceIndex } = await chrome.storage.local.get('raceIndex');
+  const s = $('start').value.replace(/-/g, ''), e = $('end').value.replace(/-/g, '');
+  const ids = (raceIndex || []).filter((r) => r.slice(0, 8) >= s && r.slice(0, 8) <= e).sort();
+  const got = await chrome.storage.local.get(ids.map((r) => `race:${r}`));
+  return ids.map((r) => got[`race:${r}`]).filter(Boolean);
+}
+
+function download(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+const csvCell = (v) => { if (v === null || v === undefined) return ''; const s = String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+
+$('startBtn').onclick = async () => {
+  await saveSettings();
+  if ($('start').value > $('end').value) { alert('期間の指定を確認してください'); return; }
+  await chrome.runtime.sendMessage({ type: 'start', startDate: $('start').value, endDate: $('end').value, venues: selectedVenues(),
+    delaySec: +$('delay').value, skipCollected: $('skip').checked });
+};
+$('stopBtn').onclick = () => chrome.runtime.sendMessage({ type: 'stop' });
+$('resumeBtn').onclick = () => chrome.runtime.sendMessage({ type: 'resume' });
+$('all').onclick = () => document.querySelectorAll('#venues input').forEach((i) => { i.checked = true; });
+$('none').onclick = () => document.querySelectorAll('#venues input').forEach((i) => { i.checked = false; });
+$('passive').onchange = saveSettings;
+
+$('exJson').onclick = async () => {
+  const races = await loadRaces();
+  if (!races.length) { alert('対象期間の取得済みデータがありません'); return; }
+  const byDate = {};
+  for (const r of races) (byDate[r.date] ||= []).push(r);
+  for (const [d, rs] of Object.entries(byDate)) {
+    download(`${d.replace(/-/g, '')}_keibanalysis.json`,
+      JSON.stringify({ source: 'keibanalysis.net positionmap', date: d.replace(/-/g, ''), exportedAt: new Date().toISOString(), raceCount: rs.length, races: rs }, null, 1),
+      'application/json');
+  }
+};
+
+$('exCsv').onclick = async () => {
+  const races = await loadRaces();
+  if (!races.length) { alert('対象期間の取得済みデータがありません'); return; }
+  const head = ['raceid', 'date', 'venueCode', 'venueName', 'raceNo', 'raceName', 'distance', 'runners', 'pageType', 'collectedAt',
+    'horseNumber', 'frameNumber', 'horseName', 'sex', 'age', 'jockey', 'jockeyStat', 'jockeyPrize', 'weight', 'trainer', 'trainerStat', 'trainerPrize', 'trainerCol3', 'trainerCol3Prize',
+    'sp', 'spRank', 'cornerPx', 'cornerOrder', 'popularity', 'odds', 'finish',
+    ...SUP_KEYS.map((k) => `sup_${k}`), 'stat_持ち時計', 'stat_陣営', 'stat_潜在力', 'stat_総合力', 'stat_近走内容'];
+  const lines = [head.join(',')];
+  for (const r of races) for (const h of r.horses) {
+    const st = r.stats ? (r.stats[`${h.horseNumber}. ${h.horseName}`] || {}).stats || {} : {};
+    const row = [r.raceid, r.date, r.venueCode, r.venueName, r.raceNo, r.raceName, r.distance, r.runners, r.pageType, r.collectedAt,
+      h.horseNumber, h.frameNumber, h.horseName, h.sex, h.age, h.jockey, h.jockeyStat, h.jockeyPrize, h.weight, h.trainer, h.trainerStat, h.trainerPrize, h.trainerCol3, h.trainerCol3Prize,
+      h.sp, h.spRank, h.cornerPx, h.cornerOrder, h.popularity, h.odds, h.finish,
+      ...SUP_KEYS.map((k) => (h.superiority || {})[k]), st['持ち時計'], st['陣営'], st['潜在力'], st['総合力'], st['近走内容']];
+    lines.push(row.map(csvCell).join(','));
+  }
+  download(`keibanalysis_${$('start').value.replace(/-/g, '')}_${$('end').value.replace(/-/g, '')}.csv`, '﻿' + lines.join('\n'), 'text/csv');
+};
+
+$('clear').onclick = async () => {
+  if (!confirm('取得済みデータをすべて削除します。よろしいですか？')) return;
+  const all = await chrome.storage.local.get(null);
+  await chrome.storage.local.remove(Object.keys(all).filter((k) => k.startsWith('race:')).concat(['raceIndex', 'state']));
+};
+
+init();

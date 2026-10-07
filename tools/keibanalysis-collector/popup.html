@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<style>
+  body { font: 13px/1.5 system-ui, sans-serif; width: 380px; margin: 10px; color: #222; }
+  h1 { font-size: 15px; margin: 0 0 8px; }
+  fieldset { border: 1px solid #ccc; border-radius: 6px; margin: 0 0 8px; padding: 6px 8px; }
+  legend { font-weight: 600; }
+  .venues { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px 6px; }
+  .row { display: flex; gap: 6px; align-items: center; margin: 3px 0; flex-wrap: wrap; }
+  button { padding: 4px 10px; }
+  #status { background: #f4f6f8; border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; }
+  #paused { color: #b00020; font-weight: 600; }
+  #log { max-height: 140px; overflow: auto; font-size: 11px; color: #555; white-space: pre-wrap; }
+</style></head>
+<body>
+<h1>地方競馬Tips コレクター</h1>
+<fieldset><legend>収集期間</legend>
+  <div class="row"><input type="date" id="start"> 〜 <input type="date" id="end"></div>
+</fieldset>
+<fieldset><legend>競馬場（未選択なら全場）</legend>
+  <div class="venues" id="venues"></div>
+  <div class="row"><button id="all">全選択</button><button id="none">全解除</button></div>
+</fieldset>
+<fieldset><legend>設定</legend>
+  <div class="row">取得間隔 <input type="number" id="delay" min="3" value="8" style="width:4em"> 秒（＋0〜3秒のゆらぎ）</div>
+  <div class="row"><label><input type="checkbox" id="skip" checked> 取得済みレースは飛ばす</label></div>
+  <div class="row"><label><input type="checkbox" id="passive"> 自分で閲覧したページも保存する</label></div>
+</fieldset>
+<div class="row">
+  <button id="startBtn">開始</button><button id="stopBtn">停止</button><button id="resumeBtn">再開</button>
+</div>
+<div id="paused"></div>
+<div id="status">-</div>
+<fieldset><legend>出力</legend>
+  <div class="row"><button id="exJson">JSON（日付別）</button><button id="exCsv">CSV（1馬1行）</button></div>
+  <div class="row"><small>出力対象: 上の収集期間に含まれる取得済みレース</small></div>
+  <div class="row"><button id="clear">取得済みデータを全削除</button></div>
+</fieldset>
+<div id="log"></div>
+<script src="popup.js"></script>
+</body></html>

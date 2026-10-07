@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "地方競馬Tips コレクター",
+  "version": "1.0.0",
+  "description": "keibanalysis.net の展開予想（positionmap）ページから、日付・競馬場別に各レースのデータを収集してJSON/CSVで保存します。",
+  "permissions": ["storage", "unlimitedStorage", "tabs"],
+  "host_permissions": ["https://keibanalysis.net/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://keibanalysis.net/race/positionmap*"],
+      "js": ["extract.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_popup": "popup.html", "default_title": "地方競馬Tips コレクター" }
+}
