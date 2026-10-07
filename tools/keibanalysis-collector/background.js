@@ -18,9 +18,12 @@ async function log(msg) {
   await setState(st);
 }
 
+// 日付はPCの現地時間で扱う（toISOString はUTCに変換されるため使わない。日本時間では前日にずれる）
+const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 function datesBetween(a, b) {
-  const out = []; const d = new Date(a + 'T00:00:00'); const end = new Date(b + 'T00:00:00');
-  while (d <= end) { out.push(d.toISOString().slice(0, 10).replace(/-/g, '')); d.setDate(d.getDate() + 1); }
+  const [ay, am, ad] = a.split('-').map(Number); const [by, bm, bd] = b.split('-').map(Number);
+  const out = []; const d = new Date(ay, am - 1, ad); const end = new Date(by, bm - 1, bd);
+  while (d <= end) { out.push(ymd(d)); d.setDate(d.getDate() + 1); }
   return out;
 }
 

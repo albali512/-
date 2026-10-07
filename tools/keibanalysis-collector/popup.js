@@ -1,5 +1,7 @@
 const $ = (id) => document.getElementById(id);
-const fmt = (d) => d.toISOString().slice(0, 10);
+// 現地時間で YYYY-MM-DD（toISOString はUTC変換で日付がずれるため使わない）
+const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const dash = (s) => `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
 const SUP_KEYS = ['斤量', '騎手', '最終角巧者', 'スタート巧者', '馬との相性', '馬番勝率', '先行力', '末脚', 'あがり', '調子'];
 
 async function init() {
@@ -26,18 +28,27 @@ async function saveSettings() {
 async function render() {
   const { state, raceIndex } = await chrome.storage.local.get(['state', 'raceIndex']);
   const n = (raceIndex || []).length;
-  if (!state) { $('status').textContent = `待機中 / 保存済み ${n}レース`; return; }
+  const days = Array.from(new Set((raceIndex || []).map((r) => r.slice(0, 8)))).sort();
+  const span = days.length ? `（${dash(days[0])}〜${dash(days[days.length - 1])}、${days.length}日分）` : '';
+  if (!state) { $('status').textContent = `待機中 / 保存済み ${n}レース${span}`; return; }
   const c = state.counts || {};
   $('status').textContent = `${state.running ? (state.paused ? '一時停止中' : '収集中') : '停止'} / 残り ${state.queue.length}件（開催確認を含む）\n` +
-    `取得 ${c.ok || 0} / データなし ${c.empty || 0} / スキップ ${c.skipped || 0} / 応答なし ${c.timeout || 0}\n保存済み合計 ${n}レース`;
+    `取得 ${c.ok || 0} / データなし ${c.empty || 0} / スキップ ${c.skipped || 0} / 応答なし ${c.timeout || 0}\n保存済み合計 ${n}レース${span}`;
   $('paused').textContent = state.paused || '';
   $('log').textContent = (state.log || []).join('\n');
 }
 
 async function loadRaces() {
   const { raceIndex } = await chrome.storage.local.get('raceIndex');
+  const all = (raceIndex || []).slice().sort();
+  if (!all.length) { alert('保存済みのレースがありません。収集が終わっているか、ポップアップの表示を確認してください。'); return []; }
   const s = $('start').value.replace(/-/g, ''), e = $('end').value.replace(/-/g, '');
-  const ids = (raceIndex || []).filter((r) => r.slice(0, 8) >= s && r.slice(0, 8) <= e).sort();
+  let ids = all.filter((r) => r.slice(0, 8) >= s && r.slice(0, 8) <= e);
+  if (!ids.length) {
+    const d0 = dash(all[0].slice(0, 8)), d1 = dash(all[all.length - 1].slice(0, 8));
+    if (!confirm(`指定期間（${$('start').value}〜${$('end').value}）のレースはありません。\n保存済みは ${d0}〜${d1} の ${all.length}レースです。全件を出力しますか？`)) return [];
+    ids = all;
+  }
   const got = await chrome.storage.local.get(ids.map((r) => `race:${r}`));
   return ids.map((r) => got[`race:${r}`]).filter(Boolean);
 }
@@ -64,7 +75,7 @@ $('passive').onchange = saveSettings;
 
 $('exJson').onclick = async () => {
   const races = await loadRaces();
-  if (!races.length) { alert('対象期間の取得済みデータがありません'); return; }
+  if (!races.length) return;
   const byDate = {};
   for (const r of races) (byDate[r.date] ||= []).push(r);
   for (const [d, rs] of Object.entries(byDate)) {
@@ -76,7 +87,7 @@ $('exJson').onclick = async () => {
 
 $('exCsv').onclick = async () => {
   const races = await loadRaces();
-  if (!races.length) { alert('対象期間の取得済みデータがありません'); return; }
+  if (!races.length) return;
   const head = ['raceid', 'date', 'venueCode', 'venueName', 'raceNo', 'raceName', 'distance', 'runners', 'pageType', 'collectedAt',
     'horseNumber', 'frameNumber', 'horseName', 'sex', 'age', 'jockey', 'jockeyStat', 'jockeyPrize', 'weight', 'trainer', 'trainerStat', 'trainerPrize', 'trainerCol3', 'trainerCol3Prize',
     'sp', 'spRank', 'cornerPx', 'cornerOrder', 'popularity', 'odds', 'finish',
@@ -90,7 +101,7 @@ $('exCsv').onclick = async () => {
       ...SUP_KEYS.map((k) => (h.superiority || {})[k]), st['持ち時計'], st['陣営'], st['潜在力'], st['総合力'], st['近走内容']];
     lines.push(row.map(csvCell).join(','));
   }
-  download(`keibanalysis_${$('start').value.replace(/-/g, '')}_${$('end').value.replace(/-/g, '')}.csv`, '﻿' + lines.join('\n'), 'text/csv');
+  download(`keibanalysis_${races[0].raceid.slice(0, 8)}_${races[races.length - 1].raceid.slice(0, 8)}.csv`, '﻿' + lines.join('\n'), 'text/csv');
 };
 
 $('clear').onclick = async () => {
