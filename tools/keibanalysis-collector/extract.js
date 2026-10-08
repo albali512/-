@@ -79,7 +79,9 @@
         cornerPx, // 予想4角位置（左からのpx。小さいほど前）
         popularity: odds[0] ? num(txt(odds[0])) : null,
         odds: odds[1] ? num(txt(odds[1])) : null,
-        finish: finishTxt === '' ? null : (num(finishTxt) ?? finishTxt)
+        // 着順は数値のみ。取消・除外・中止などの文字は finishStatus に分ける
+        finish: /^\d+$/.test(finishTxt) ? parseInt(finishTxt, 10) : null,
+        finishStatus: finishTxt === '' ? null : (/^\d+$/.test(finishTxt) ? '確定' : finishTxt)
       });
     });
     // 予想4角位置の順位（px昇順）
@@ -109,6 +111,8 @@
     }
     out.horses = horses;
     out.runners = horses.length;
+    // 新馬戦などでSPが全頭空欄のレース
+    out.spAvailable = horses.some((h) => h.sp !== null);
 
     // 同日の他レース（同じ日付で始まる raceid のみ）
     const ids = new Set();

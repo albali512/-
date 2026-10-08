@@ -87,12 +87,19 @@ async function loop() {
           const more = data.sameDayRaceIds.filter((r) => r.slice(8, 10) === code && r !== item.raceid && !queued.has(r));
           st.queue = st.queue.filter((q) => !(q.probe && q.raceid.slice(0, 8) === day && !held.has(q.raceid.slice(8, 10))));
           st.queue.unshift(...more.map((r) => ({ raceid: r, probe: false })));
+          // リンクに載っていないレースがある場合に備え、最終レースの次の番号も1つ確認する
+          const last = Math.max(item.raceid.slice(10) | 0, ...more.map((r) => r.slice(10) | 0));
+          st.queue.splice(more.length, 0, { raceid: `${day}${code}${String(last + 1).padStart(2, '0')}`, extend: true });
+        } else if (item.extend) {
+          const n = (item.raceid.slice(10) | 0) + 1;
+          if (n <= 16) st.queue.unshift({ raceid: `${item.raceid.slice(0, 10)}${String(n).padStart(2, '0')}`, extend: true });
+          await log(`${item.raceid} リンクに無いレースを取得 → 次の番号も確認`);
         }
         await setState(st);
         await log(`${item.raceid} ${data.venueName || ''}${data.raceNo}R ${data.runners}頭 取得`);
       } else {
         st.counts.empty++; await setState(st);
-        if (!item.probe) await log(`${item.raceid} データなし`);
+        if (!item.probe && !item.extend) await log(`${item.raceid} データなし`);
       }
       const jitter = Math.floor(Math.random() * 3000);
       await sleep(st.delayMs + jitter);
