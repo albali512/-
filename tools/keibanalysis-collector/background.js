@@ -6,6 +6,13 @@ const BASE = 'https://keibanalysis.net/race/positionmap?raceid=';
 const VENUES = [['36', '門別'], ['20', '大井'], ['27', '園田'], ['24', '名古屋'], ['23', '笠松'], ['22', '金沢'], ['31', '高知'],
   ['32', '佐賀'], ['21', '川崎'], ['19', '船橋'], ['18', '浦和'], ['10', '盛岡'], ['11', '水沢'], ['28', '姫路']];
 const PAGE_TIMEOUT_MS = 45000;
+const NK = 'https://nar.netkeiba.com/race/result.html?race_id=';
+// keibanalysis(NAR公式)の競馬場コード → netkeiba の競馬場コード（姫路51は手元データで未確認）
+const NK_CODE = { '36': '30', '10': '35', '11': '36', '18': '42', '19': '43', '20': '44', '21': '45',
+  '22': '46', '23': '47', '24': '48', '27': '50', '28': '51', '31': '54', '32': '55' };
+const nkRaceId = (raceid) => NK_CODE[raceid.slice(8, 10)]
+  ? `${raceid.slice(0, 4)}${NK_CODE[raceid.slice(8, 10)]}${raceid.slice(4, 8)}${raceid.slice(10, 12)}` : null;
+const needsOdds = (r) => r && r.status === 'ok' && !r.oddsSource && r.horses.length && r.horses.every((h) => h.odds === null);
 const waiters = new Map(); // raceid -> resolve
 
 const getState = async () => (await chrome.storage.local.get('state')).state || null;
@@ -45,11 +52,32 @@ async function ensureTab(st) {
   st.tabId = tab.id; await setState(st); return tab.id;
 }
 
-function waitPage(raceid) {
+function waitPage(key) {
   return new Promise((resolve) => {
-    const t = setTimeout(() => { waiters.delete(raceid); resolve(null); }, PAGE_TIMEOUT_MS);
-    waiters.set(raceid, (d) => { clearTimeout(t); waiters.delete(raceid); resolve(d); });
+    const t = setTimeout(() => { waiters.delete(key); resolve(null); }, PAGE_TIMEOUT_MS);
+    waiters.set(key, (d) => { clearTimeout(t); waiters.delete(key); resolve(d); });
   });
+}
+
+// netkeiba の結果ページで人気・単勝オッズ（確定）を補完する。成功/失敗の別を返す。
+async function enrichOdds(st, race) {
+  const nk = nkRaceId(race.raceid);
+  if (!nk) { race.oddsStatus = 'no_venue_map'; return false; }
+  const tabId = await ensureTab(st);
+  const wait = waitPage(`nk:${nk}`);
+  await chrome.tabs.update(tabId, { url: NK + nk });
+  const d = await wait;
+  if (!d || !d.rows.length) { race.oddsStatus = d ? 'not_found' : 'timeout'; return false; }
+  const byNo = new Map(d.rows.map((r) => [r.horseNumber, r]));
+  let matched = 0, nameMismatch = 0;
+  for (const h of race.horses) {
+    const r = byNo.get(h.horseNumber); if (!r) continue;
+    h.popularity = r.popularity; h.odds = r.odds; matched++;
+    if (r.horseName && h.horseName && !r.horseName.includes(h.horseName) && !h.horseName.includes(r.horseName)) nameMismatch++;
+  }
+  Object.assign(race, { oddsSource: 'netkeiba', oddsTiming: 'final', oddsUrl: d.url, oddsCollectedAt: new Date().toISOString(),
+    oddsMatched: matched, oddsNameMismatch: nameMismatch, oddsStatus: nameMismatch ? 'name_mismatch' : 'ok' });
+  return true;
 }
 
 let looping = false;
@@ -62,10 +90,28 @@ async function loop() {
       const item = st.queue.shift();
       if (!item) { st.running = false; st.finishedAt = new Date().toISOString(); await setState(st); await log('完了しました'); break; }
       await setState(st);
-      if (st.skipCollected && await isCollected(item.raceid)) { st.counts.skipped++; await setState(st); continue; }
+      if (st.skipCollected && await isCollected(item.raceid)) {
+        const k = `race:${item.raceid}`; const saved = (await chrome.storage.local.get(k))[k];
+        if (st.enrichOdds && needsOdds(saved)) {          // 取得済みでもオッズが無ければ補完だけ行う
+          const ok = await enrichOdds(st, saved); await saveRace(saved);
+          st = await getState(); st.counts.odds = (st.counts.odds || 0) + (ok ? 1 : 0); await setState(st);
+          await log(`${item.raceid} オッズ補完 ${ok ? '成功' : '失敗(' + saved.oddsStatus + ')'}`);
+          await sleep(st.delayMs + Math.floor(Math.random() * 3000));
+        } else { st.counts.skipped++; await setState(st); }
+        if (item.probe && saved && saved.sameDayRaceIds) {  // 開催確認の役割は果たす
+          st = await getState(); const day = item.raceid.slice(0, 8); const code = item.raceid.slice(8, 10);
+          const held = new Set(saved.sameDayRaceIds.map((r) => r.slice(8, 10))); held.add(code);
+          const queued = new Set(st.queue.map((q) => q.raceid));
+          const more = saved.sameDayRaceIds.filter((r) => r.slice(8, 10) === code && r !== item.raceid && !queued.has(r));
+          st.queue = st.queue.filter((q) => !(q.probe && q.raceid.slice(0, 8) === day && !held.has(q.raceid.slice(8, 10))));
+          st.queue.unshift(...more.map((r) => ({ raceid: r, probe: false })));
+          await setState(st);
+        }
+        continue;
+      }
 
       const tabId = await ensureTab(st);
-      const wait = waitPage(item.raceid);
+      const wait = waitPage(`ka:${item.raceid}`);
       await chrome.tabs.update(tabId, { url: BASE + item.raceid });
       const data = await wait;
       st = await getState(); if (!st) break;
@@ -77,6 +123,13 @@ async function loop() {
         await setState(st); await log(`${item.raceid} 広告の関門を検知 → 一時停止`);
         chrome.action.setBadgeText({ text: '!' }); break;
       } else if (data.status === 'ok') {
+        if (st.enrichOdds && needsOdds(data)) {
+          await setState(st);
+          await sleep(st.delayMs + Math.floor(Math.random() * 3000));
+          const ok = await enrichOdds(st, data);
+          st = await getState(); st.counts.odds = (st.counts.odds || 0) + (ok ? 1 : 0);
+          if (!ok) await log(`${item.raceid} オッズ補完 失敗(${data.oddsStatus})`);
+        }
         await saveRace(data); st.counts.ok++;
         if (item.probe) {
           // 1Rで開催を確認できた場合: その場の残りレースを追加し、その日の非開催場の確認を省く
@@ -109,8 +162,11 @@ async function loop() {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
-    if (msg.type === 'pageData') {
-      const d = msg.data; const w = waiters.get(d.raceid);
+    if (msg.type === 'oddsData') {
+      const w = waiters.get(`nk:${msg.raceIdNk}`); const st = await getState();
+      if (w && st && sender.tab && sender.tab.id === st.tabId) w(msg);
+    } else if (msg.type === 'pageData') {
+      const d = msg.data; const w = waiters.get(`ka:${d.raceid}`);
       const st = await getState();
       if (w && st && sender.tab && sender.tab.id === st.tabId) w(d);
       else if (d.status === 'ok') {
@@ -118,14 +174,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (settings.passiveCapture) { await saveRace(d); }
       }
     } else if (msg.type === 'start') {
-      const { startDate, endDate, venues, delaySec, skipCollected } = msg;
+      const { startDate, endDate, venues, delaySec, skipCollected, enrichOdds: eo } = msg;
       const order = VENUES.map(([c]) => c);
       const codes = venues && venues.length ? order.filter((c) => venues.includes(c)) : order;
       const queue = [];
       for (const day of datesBetween(startDate, endDate)) for (const c of codes) queue.push({ raceid: `${day}${c}01`, probe: true });
       const prev = await getState();
       await setState({ running: true, paused: null, queue, tabId: prev && prev.tabId, delayMs: Math.max(3, delaySec) * 1000,
-        skipCollected, counts: { ok: 0, empty: 0, skipped: 0, timeout: 0 }, startedAt: new Date().toISOString(), log: [] });
+        skipCollected, enrichOdds: eo !== false, counts: { ok: 0, empty: 0, skipped: 0, timeout: 0, odds: 0 }, startedAt: new Date().toISOString(), log: [] });
       chrome.action.setBadgeText({ text: '' });
       await log(`開始: ${startDate}〜${endDate} / ${codes.length}場`);
       loop();

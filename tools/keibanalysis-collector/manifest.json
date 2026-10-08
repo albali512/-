@@ -1,17 +1,43 @@
 {
   "manifest_version": 3,
   "name": "地方競馬Tips コレクター",
-  "version": "1.1.0",
-  "description": "keibanalysis.net の展開予想（positionmap）ページから、日付・競馬場別に各レースのデータを収集してJSON/CSVで保存します。",
-  "permissions": ["storage", "unlimitedStorage", "tabs"],
-  "host_permissions": ["https://keibanalysis.net/*"],
-  "background": { "service_worker": "background.js" },
+  "version": "1.2.0",
+  "description": "keibanalysis.net の展開予想（positionmap）ページから、日付・競馬場別に各レースのデータを収集してJSON/CSVで保存します。過去レースの人気・オッズは netkeiba の結果ページから補完できます。",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://keibanalysis.net/*",
+    "https://nar.netkeiba.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
-      "matches": ["https://keibanalysis.net/race/positionmap*"],
-      "js": ["extract.js", "content.js"],
+      "matches": [
+        "https://keibanalysis.net/race/positionmap*"
+      ],
+      "js": [
+        "extract.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://nar.netkeiba.com/race/result.html*"
+      ],
+      "js": [
+        "netkeiba.js"
+      ],
       "run_at": "document_idle"
     }
   ],
-  "action": { "default_popup": "popup.html", "default_title": "地方競馬Tips コレクター" }
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "地方競馬Tips コレクター"
+  }
 }
