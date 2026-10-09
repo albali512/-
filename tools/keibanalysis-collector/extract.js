@@ -143,6 +143,7 @@
           else if (circles.length === 1 && !paths.length && (circles[0].getAttribute('fill') || 'none') === 'none') mark = '○';
           else if (!circles.length && paths.length === 1 && d === 'M12 3L22 20H2L12 3Z' && fill !== 'none') mark = '▲';
           else if (!circles.length && paths.length === 1 && d === 'M12 4L21 19H3Z' && fill === 'none') mark = '△';
+          else if (!circles.length && paths.length === 1 && d && d.startsWith('M12 1.5l2.8 6.2') && fill !== 'none') mark = '★'; // 星（10/9 大井3R等で確認）
           else mark = markShape ? '不明' : null;
         }
         const bar = tr.querySelector('.score-bar-fill');
