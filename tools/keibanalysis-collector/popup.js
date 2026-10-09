@@ -4,6 +4,11 @@ const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
 const dash = (s) => `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
 // 騎手のオッズ帯別3着内（「3着内数/騎乗数」で出力）
 const OR_KEYS = ['〜1.9', '2.0〜9.9', '10〜19.9', '20〜29.9', '30〜99.9', '100〜'];
+// 払戻: 券種（表記ゆれは統一）。CSVでは「組番:円」を ' / ' 区切り（ワイド・複勝・同着は複数）
+const PAY_KEYS = ['単勝', '複勝', '枠連', '馬連', 'ワイド', '枠単', '馬単', '3連複', '3連単'];
+const payOf = (r, k) => { const p = r.payouts || {}; return p[k] || p[k.replace('3', '３')] || (k === '馬連' ? p['馬複'] : null) || null; };
+const payStr = (r, k) => { const a = payOf(r, k); return a ? a.map((x) => `${x.combination}:${x.yen}`).join(' / ') : null; };
+const horsePay = (r, k, no) => { const a = payOf(r, k); if (!a) return null; const x = a.find((y) => String(y.combination) === String(no)); return x ? x.yen : (r.payouts ? 0 : null); };
 const SUP_KEYS = ['斤量', '騎手', '最終角巧者', 'スタート巧者', '馬との相性', '馬番勝率', '先行力', '末脚', 'あがり', '調子'];
 
 async function init() {
@@ -112,7 +117,8 @@ $('exCsv').onclick = async () => {
     'horseNumber', 'frameNumber', 'horseName', 'sex', 'age', 'jockey', 'jockeyStat', 'jockeyPrize', 'weight', 'trainer', 'trainerStat', 'trainerPrize', 'trainerCol3', 'trainerCol3Prize',
     'sp', 'spRank', 'cornerPx', 'cornerOrder', 'popularity', 'odds', 'prePopularity', 'preOdds', 'preOddsCollectedAt', 'finish', 'finishStatus', 'spAvailable',
     ...SUP_KEYS.map((k) => `sup_${k}`), 'aiMark', 'aiTag', 'aiScore', 'aiConfidence', 'riderVsWin', 'riderVsLoss',
-    ...OR_KEYS.map((k) => `riderOdds_${k}`), 'stat_持ち時計', 'stat_陣営', 'stat_潜在力', 'stat_総合力', 'stat_近走内容'];
+    ...OR_KEYS.map((k) => `riderOdds_${k}`), 'stat_持ち時計', 'stat_陣営', 'stat_潜在力', 'stat_総合力', 'stat_近走内容',
+    'winPay', 'placePay', ...PAY_KEYS.map((k) => `pay_${k}`)];
   const lines = [head.join(',')];
   for (const r of races) for (const h of r.horses) {
     const st = r.stats ? (r.stats[`${h.horseNumber}. ${h.horseName}`] || {}).stats || {} : {};
@@ -122,7 +128,8 @@ $('exCsv').onclick = async () => {
       ...SUP_KEYS.map((k) => (h.superiority || {})[k]), h.aiMark, h.aiTag, h.aiScore, r.aiPrediction ? r.aiPrediction.confidence : null,
       h.riderVsWin, h.riderVsLoss, ...OR_KEYS.map((k, i) => {
         const o = (r.riderOddsRange || []).find((x) => x.horseNumber === h.horseNumber); const c = o && o.cells[i];
-        return c && c.starts !== null ? `${c.top3}/${c.starts}` : null; }), st['持ち時計'], st['陣営'], st['潜在力'], st['総合力'], st['近走内容']];
+        return c && c.starts !== null ? `${c.top3}/${c.starts}` : null; }), st['持ち時計'], st['陣営'], st['潜在力'], st['総合力'], st['近走内容'],
+      horsePay(r, '単勝', h.horseNumber), horsePay(r, '複勝', h.horseNumber), ...PAY_KEYS.map((k) => payStr(r, k))];
     lines.push(row.map(csvCell).join(','));
   }
   download(`keibanalysis_${races[0].raceid.slice(0, 8)}_${races[races.length - 1].raceid.slice(0, 8)}${suffix()}.csv`, '﻿' + lines.join('\n'), 'text/csv');

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "地方競馬Tips コレクター",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "keibanalysis.net の展開予想（positionmap）ページから、日付・競馬場別に各レースのデータを収集してJSON/CSVで保存します。過去レースの人気・オッズは netkeiba の結果ページから補完できます。",
   "permissions": [
     "storage",
