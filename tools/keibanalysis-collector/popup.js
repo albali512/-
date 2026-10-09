@@ -102,7 +102,9 @@ $('exJson').onclick = async () => {
   const races = await loadRaces();
   if (!races.length) return;
   const byDate = {};
-  for (const r of races) (byDate[r.date] ||= []).push(r);
+  // 各馬に単勝・複勝の払戻（winPay/placePay）を付けて出力（レース全体の払戻は payouts）
+  for (const r of races) (byDate[r.date] ||= []).push({ ...r, horses: r.horses.map((h) => ({ ...h,
+    winPay: horsePay(r, '単勝', h.horseNumber), placePay: horsePay(r, '複勝', h.horseNumber) })) });
   for (const [d, rs] of Object.entries(byDate)) {
     download(`${d.replace(/-/g, '')}_keibanalysis${suffix()}.json`,
       JSON.stringify({ source: 'keibanalysis.net positionmap', circuit: circuitSel(), date: d.replace(/-/g, ''), exportedAt: new Date().toISOString(), raceCount: rs.length, races: rs }, null, 1),
@@ -135,20 +137,6 @@ $('exCsv').onclick = async () => {
   download(`keibanalysis_${races[0].raceid.slice(0, 8)}_${races[races.length - 1].raceid.slice(0, 8)}${suffix()}.csv`, '﻿' + lines.join('\n'), 'text/csv');
 };
 
-$('exPay').onclick = async () => {
-  const races = await loadRaces();
-  if (!races.length) return;
-  const lines = [['raceid', 'circuit', 'date', 'venueCode', 'venueName', 'raceNo', 'bet', 'combination', 'yen', 'popularity', 'payoutSource'].join(',')];
-  let n = 0;
-  for (const r of races) {
-    const c = r.circuit || (+r.venueCode >= 70 && +r.venueCode <= 79 ? 'JRA' : 'NAR');
-    for (const [bet, arr] of Object.entries(r.payouts || {})) for (const p of arr) {
-      lines.push([r.raceid, c, r.date, r.venueCode, r.venueName, r.raceNo, bet, p.combination, p.yen, p.popularity, r.payoutSource || 'keibanalysis'].map(csvCell).join(',')); n++;
-    }
-  }
-  if (!n) { alert('対象のレースに払戻データがありません（地方の過去分は netkeiba 補完をオンにして取得し直すと入ります）'); return; }
-  download(`keibanalysis_payouts_${races[0].raceid.slice(0, 8)}_${races[races.length - 1].raceid.slice(0, 8)}${suffix()}.csv`, '\ufeff' + lines.join('\n'), 'text/csv');
-};
 $('clear').onclick = async () => {
   if (!confirm('取得済みデータをすべて削除します。よろしいですか？')) return;
   const all = await chrome.storage.local.get(null);
