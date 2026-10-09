@@ -32,7 +32,33 @@
     return [];
   }
 
+  // 払戻表: 行見出し(th)が券種名の表から、組番・払戻(円)・人気を読む
+  const BETS = ['単勝', '複勝', '枠連', '馬連', 'ワイド', '枠単', '馬単', '3連複', '３連複', '3連単', '３連単'];
+  function parsePayouts() {
+    const out = {};
+    document.querySelectorAll('table tr').forEach((tr) => {
+      const th = tr.querySelector('th'); if (!th) return;
+      const kind = txt(th).replace('３', '3');
+      if (!BETS.map((b) => b.replace('３', '3')).includes(kind)) return;
+      const tds = Array.from(tr.querySelectorAll('td')); if (tds.length < 2) return;
+      const res = tds[0], payTd = tds[1], popTd = tds[2];
+      let combos = [];
+      const uls = res.querySelectorAll('ul');
+      if (uls.length) combos = Array.from(uls).map((ul) => Array.from(ul.querySelectorAll('li')).map(txt).filter(Boolean).join('-')).filter(Boolean);
+      else {
+        const divs = res.querySelectorAll(':scope > div');
+        combos = divs.length ? Array.from(divs).map(txt).filter(Boolean) : txt(res).split(/\s+/).filter(Boolean);
+      }
+      const yen = (payTd.textContent.match(/[\d,]+(?=円)/g) || []).map((s) => +s.replace(/,/g, ''));
+      const pop = popTd ? (popTd.textContent.match(/\d+(?=人気)/g) || []).map(Number) : [];
+      if (!yen.length) return;
+      out[kind] = yen.map((y, i) => ({ combination: combos[i] ?? null, yen: y, popularity: pop[i] ?? null }));
+    });
+    return out;
+  }
+
   let rows = [];
   for (let i = 0; i < 20 && !rows.length; i++) { rows = parse(); if (!rows.length) await new Promise((r) => setTimeout(r, 500)); }
-  try { chrome.runtime.sendMessage({ type: 'oddsData', raceIdNk, url: location.href, rows }); } catch (e) { /* 拡張の再読込中など */ }
+  const payouts = parsePayouts();
+  try { chrome.runtime.sendMessage({ type: 'oddsData', raceIdNk, url: location.href, rows, payouts }); } catch (e) { /* 拡張の再読込中など */ }
 })();

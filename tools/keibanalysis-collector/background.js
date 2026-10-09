@@ -20,6 +20,9 @@ const NK_CODE = { '36': '30', '10': '35', '11': '36', '18': '42', '19': '43', '2
 const nkRaceId = (raceid) => NK_CODE[raceid.slice(8, 10)]
   ? `${raceid.slice(0, 4)}${NK_CODE[raceid.slice(8, 10)]}${raceid.slice(4, 8)}${raceid.slice(10, 12)}` : null;
 const needsOdds = (r) => r && r.status === 'ok' && !r.oddsSource && r.horses.length && r.horses.every((h) => h.odds === null);
+// 地方の結果確定レースで払戻が無いもの（地方の過去ページには払戻が無いため netkeiba から取る）
+const needsPayouts = (r) => r && r.status === 'ok' && r.circuit !== 'JRA' && !r.payouts && r.horses.some((h) => h.finish !== null);
+const needsNk = (r) => needsOdds(r) || needsPayouts(r);
 const waiters = new Map(); // raceid -> resolve
 
 const getState = async () => (await chrome.storage.local.get('state')).state || null;
@@ -100,6 +103,13 @@ async function enrichOdds(st, race) {
   const wait = waitPage(`nk:${nk}`);
   await chrome.tabs.update(tabId, { url: NK + nk });
   const d = await wait;
+  if (d && d.payouts && Object.keys(d.payouts).length && !race.payouts) {
+    race.payouts = d.payouts; race.payoutSource = 'netkeiba'; race.payoutCollectedAt = new Date().toISOString();
+    // 検証: 単勝の組番が1着馬と一致するか
+    const w = (d.payouts['単勝'] || [])[0]; const first = race.horses.find((h) => h.finish === 1);
+    race.payoutCheck = w && first ? (String(first.horseNumber) === String(w.combination) ? 'ok' : 'winner_mismatch') : null;
+  }
+  if (!needsOdds(race)) return !!race.payouts; // オッズは既にある（払戻だけ補完）
   if (!d || !d.rows.length) { race.oddsStatus = d ? 'not_found' : 'timeout'; return false; }
   const byNo = new Map(d.rows.map((r) => [r.horseNumber, r]));
   let matched = 0, nameMismatch = 0;
@@ -125,7 +135,7 @@ async function loop() {
       await setState(st);
       if (st.skipCollected && await isCollected(item.raceid)) {
         const k = `race:${item.raceid}`; const saved = (await chrome.storage.local.get(k))[k];
-        if (st.enrichOdds && needsOdds(saved)) {          // 取得済みでもオッズが無ければ補完だけ行う
+        if (st.enrichOdds && needsNk(saved)) {          // 取得済みでもオッズが無ければ補完だけ行う
           const ok = await enrichOdds(st, saved); await saveRace(saved);
           st = await getState(); st.counts.odds = (st.counts.odds || 0) + (ok ? 1 : 0); await setState(st);
           await log(`${item.raceid} オッズ補完 ${ok ? '成功' : '失敗(' + saved.oddsStatus + ')'}`);
@@ -156,7 +166,7 @@ async function loop() {
         await setState(st); await log(`${item.raceid} 広告の関門を検知 → 一時停止`);
         chrome.action.setBadgeText({ text: '!' }); break;
       } else if (data.status === 'ok') {
-        if (st.enrichOdds && needsOdds(data)) {
+        if (st.enrichOdds && needsNk(data)) {
           await setState(st);
           await sleep(st.delayMs + Math.floor(Math.random() * 3000));
           const ok = await enrichOdds(st, data);

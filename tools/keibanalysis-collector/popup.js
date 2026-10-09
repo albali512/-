@@ -108,7 +108,7 @@ $('exJson').onclick = async () => {
 $('exCsv').onclick = async () => {
   const races = await loadRaces();
   if (!races.length) return;
-  const head = ['raceid', 'circuit', 'date', 'venueCode', 'venueName', 'raceNo', 'raceName', 'distance', 'runners', 'pageType', 'collectedAt', 'oddsSource', 'oddsTiming', 'oddsStatus',
+  const head = ['raceid', 'circuit', 'date', 'venueCode', 'venueName', 'raceNo', 'raceName', 'distance', 'runners', 'pageType', 'collectedAt', 'oddsSource', 'oddsTiming', 'oddsStatus', 'hasPayouts',
     'horseNumber', 'frameNumber', 'horseName', 'sex', 'age', 'jockey', 'jockeyStat', 'jockeyPrize', 'weight', 'trainer', 'trainerStat', 'trainerPrize', 'trainerCol3', 'trainerCol3Prize',
     'sp', 'spRank', 'cornerPx', 'cornerOrder', 'popularity', 'odds', 'prePopularity', 'preOdds', 'preOddsCollectedAt', 'finish', 'finishStatus', 'spAvailable',
     ...SUP_KEYS.map((k) => `sup_${k}`), 'aiMark', 'aiTag', 'aiScore', 'aiConfidence', 'riderVsWin', 'riderVsLoss',
@@ -116,7 +116,7 @@ $('exCsv').onclick = async () => {
   const lines = [head.join(',')];
   for (const r of races) for (const h of r.horses) {
     const st = r.stats ? (r.stats[`${h.horseNumber}. ${h.horseName}`] || {}).stats || {} : {};
-    const row = [r.raceid, r.circuit || (+r.venueCode >= 70 && +r.venueCode <= 79 ? 'JRA' : 'NAR'), r.date, r.venueCode, r.venueName, r.raceNo, r.raceName, r.distance, r.runners, r.pageType, r.collectedAt, r.oddsSource, r.oddsTiming, r.oddsStatus,
+    const row = [r.raceid, r.circuit || (+r.venueCode >= 70 && +r.venueCode <= 79 ? 'JRA' : 'NAR'), r.date, r.venueCode, r.venueName, r.raceNo, r.raceName, r.distance, r.runners, r.pageType, r.collectedAt, r.oddsSource, r.oddsTiming, r.oddsStatus, r.payouts ? 1 : 0,
       h.horseNumber, h.frameNumber, h.horseName, h.sex, h.age, h.jockey, h.jockeyStat, h.jockeyPrize, h.weight, h.trainer, h.trainerStat, h.trainerPrize, h.trainerCol3, h.trainerCol3Prize,
       h.sp, h.spRank, h.cornerPx, h.cornerOrder, h.popularity, h.odds, h.prePopularity, h.preOdds, r.preOddsCollectedAt, h.finish, h.finishStatus, r.spAvailable,
       ...SUP_KEYS.map((k) => (h.superiority || {})[k]), h.aiMark, h.aiTag, h.aiScore, r.aiPrediction ? r.aiPrediction.confidence : null,
@@ -128,6 +128,20 @@ $('exCsv').onclick = async () => {
   download(`keibanalysis_${races[0].raceid.slice(0, 8)}_${races[races.length - 1].raceid.slice(0, 8)}${suffix()}.csv`, '﻿' + lines.join('\n'), 'text/csv');
 };
 
+$('exPay').onclick = async () => {
+  const races = await loadRaces();
+  if (!races.length) return;
+  const lines = [['raceid', 'circuit', 'date', 'venueCode', 'venueName', 'raceNo', 'bet', 'combination', 'yen', 'popularity', 'payoutSource'].join(',')];
+  let n = 0;
+  for (const r of races) {
+    const c = r.circuit || (+r.venueCode >= 70 && +r.venueCode <= 79 ? 'JRA' : 'NAR');
+    for (const [bet, arr] of Object.entries(r.payouts || {})) for (const p of arr) {
+      lines.push([r.raceid, c, r.date, r.venueCode, r.venueName, r.raceNo, bet, p.combination, p.yen, p.popularity, r.payoutSource || 'keibanalysis'].map(csvCell).join(',')); n++;
+    }
+  }
+  if (!n) { alert('対象のレースに払戻データがありません（地方の過去分は netkeiba 補完をオンにして取得し直すと入ります）'); return; }
+  download(`keibanalysis_payouts_${races[0].raceid.slice(0, 8)}_${races[races.length - 1].raceid.slice(0, 8)}${suffix()}.csv`, '\ufeff' + lines.join('\n'), 'text/csv');
+};
 $('clear').onclick = async () => {
   if (!confirm('取得済みデータをすべて削除します。よろしいですか？')) return;
   const all = await chrome.storage.local.get(null);

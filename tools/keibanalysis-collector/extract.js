@@ -58,6 +58,16 @@
       const re = /\.position-pad-(\d+)\s*\{[^}]*?left:\s*([\d.\-]+)px/g; let mm;
       while ((mm = re.exec(st.textContent || ''))) padLeft[mm[1]] = parseFloat(mm[2]);
     });
+    // レーダーチャートの値: スクリプト内 allData が無い場合は、グラフ要素の data-stats 属性から読む
+    if (!out.stats) {
+      const st = {};
+      doc.querySelectorAll('.chart-box').forEach((box) => {
+        const svg = box.querySelector('[data-stats]'); if (!svg) return;
+        try { st[txt(box.querySelector('.chart-title'))] = { stats: JSON.parse(svg.getAttribute('data-stats')),
+          missing: JSON.parse(svg.getAttribute('data-missing') || '[]') }; } catch (e) { /* 形式違いは無視 */ }
+      });
+      if (Object.keys(st).length) out.stats = st;
+    }
     // 出馬表
     const horses = [];
     doc.querySelectorAll('#horse-data dl').forEach((dl) => {
