@@ -37,6 +37,10 @@
 <div id="status">-</div>
 <fieldset><legend>出力</legend>
   <div class="row"><button id="exJson">JSON（日付別）</button><button id="exCsv">CSV（1馬1行）</button></div>
+  <div class="row">対象:
+    <label><input type="radio" name="circuit" value="all" checked> 両方</label>
+    <label><input type="radio" name="circuit" value="NAR"> 地方のみ</label>
+    <label><input type="radio" name="circuit" value="JRA"> 中央のみ</label></div>
   <div class="row"><small>出力対象: 上の収集期間に含まれる取得済みレース</small></div>
   <div class="row"><button id="clear">取得済みデータを全削除</button></div>
 </fieldset>

@@ -52,8 +52,18 @@ async function loadRaces() {
     ids = all;
   }
   const got = await chrome.storage.local.get(ids.map((r) => `race:${r}`));
-  return ids.map((r) => got[`race:${r}`]).filter(Boolean);
+  const races = ids.map((r) => got[`race:${r}`]).filter(Boolean);
+  const c = circuitSel();
+  if (c === 'all') return races;
+  // 中央/地方の判定: circuit が無い古いデータは競馬場コード 70〜79 を中央とみなす
+  const isJra = (r) => (r.circuit ? r.circuit === 'JRA' : +r.venueCode >= 70 && +r.venueCode <= 79);
+  const sel = races.filter((r) => (c === 'JRA') === isJra(r));
+  if (!sel.length) alert(`対象期間に${c === 'JRA' ? '中央' : '地方'}のレースがありません。`);
+  return sel;
 }
+
+const circuitSel = () => (document.querySelector('input[name="circuit"]:checked') || {}).value || 'all';
+const suffix = () => ({ all: '', NAR: '_nar', JRA: '_jra' })[circuitSel()];
 
 function download(name, text, type) {
   const url = URL.createObjectURL(new Blob([text], { type }));
@@ -89,8 +99,8 @@ $('exJson').onclick = async () => {
   const byDate = {};
   for (const r of races) (byDate[r.date] ||= []).push(r);
   for (const [d, rs] of Object.entries(byDate)) {
-    download(`${d.replace(/-/g, '')}_keibanalysis.json`,
-      JSON.stringify({ source: 'keibanalysis.net positionmap', date: d.replace(/-/g, ''), exportedAt: new Date().toISOString(), raceCount: rs.length, races: rs }, null, 1),
+    download(`${d.replace(/-/g, '')}_keibanalysis${suffix()}.json`,
+      JSON.stringify({ source: 'keibanalysis.net positionmap', circuit: circuitSel(), date: d.replace(/-/g, ''), exportedAt: new Date().toISOString(), raceCount: rs.length, races: rs }, null, 1),
       'application/json');
   }
 };
@@ -106,7 +116,7 @@ $('exCsv').onclick = async () => {
   const lines = [head.join(',')];
   for (const r of races) for (const h of r.horses) {
     const st = r.stats ? (r.stats[`${h.horseNumber}. ${h.horseName}`] || {}).stats || {} : {};
-    const row = [r.raceid, r.circuit, r.date, r.venueCode, r.venueName, r.raceNo, r.raceName, r.distance, r.runners, r.pageType, r.collectedAt, r.oddsSource, r.oddsTiming, r.oddsStatus,
+    const row = [r.raceid, r.circuit || (+r.venueCode >= 70 && +r.venueCode <= 79 ? 'JRA' : 'NAR'), r.date, r.venueCode, r.venueName, r.raceNo, r.raceName, r.distance, r.runners, r.pageType, r.collectedAt, r.oddsSource, r.oddsTiming, r.oddsStatus,
       h.horseNumber, h.frameNumber, h.horseName, h.sex, h.age, h.jockey, h.jockeyStat, h.jockeyPrize, h.weight, h.trainer, h.trainerStat, h.trainerPrize, h.trainerCol3, h.trainerCol3Prize,
       h.sp, h.spRank, h.cornerPx, h.cornerOrder, h.popularity, h.odds, h.prePopularity, h.preOdds, r.preOddsCollectedAt, h.finish, h.finishStatus, r.spAvailable,
       ...SUP_KEYS.map((k) => (h.superiority || {})[k]), h.aiMark, h.aiTag, h.aiScore, r.aiPrediction ? r.aiPrediction.confidence : null,
@@ -115,7 +125,7 @@ $('exCsv').onclick = async () => {
         return c && c.starts !== null ? `${c.top3}/${c.starts}` : null; }), st['持ち時計'], st['陣営'], st['潜在力'], st['総合力'], st['近走内容']];
     lines.push(row.map(csvCell).join(','));
   }
-  download(`keibanalysis_${races[0].raceid.slice(0, 8)}_${races[races.length - 1].raceid.slice(0, 8)}.csv`, '﻿' + lines.join('\n'), 'text/csv');
+  download(`keibanalysis_${races[0].raceid.slice(0, 8)}_${races[races.length - 1].raceid.slice(0, 8)}${suffix()}.csv`, '﻿' + lines.join('\n'), 'text/csv');
 };
 
 $('clear').onclick = async () => {
