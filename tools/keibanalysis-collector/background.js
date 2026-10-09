@@ -55,6 +55,12 @@ async function saveRace(data) {
         if (o) Object.assign(h, { aiMark: o.aiMark, aiTag: o.aiTag, aiScore: o.aiScore, riderVsWin: o.riderVsWin, riderVsLoss: o.riderVsLoss }); }
     }
     data.firstCollectedAt = prev.firstCollectedAt || prev.collectedAt;
+    // 前売りオッズは最初の（発走前の）値を残す
+    if (prev.preOddsCollectedAt) {
+      for (const h of data.horses) { const o = prev.horses.find((x) => x.horseNumber === h.horseNumber);
+        if (o) { h.preOdds = o.preOdds ?? null; h.prePopularity = o.prePopularity ?? null; } }
+      data.preOddsCollectedAt = prev.preOddsCollectedAt;
+    }
     if (!data.oddsSource && prev.oddsSource) {   // 補完済みオッズも残す
       for (const h of data.horses) { const o = prev.horses.find((x) => x.horseNumber === h.horseNumber);
         if (o && h.odds === null) { h.odds = o.odds; h.popularity = o.popularity; } }

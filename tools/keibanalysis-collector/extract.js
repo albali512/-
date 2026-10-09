@@ -119,19 +119,25 @@
         const markTd = tr.querySelector('td.col-mark');
         const no = num(txt(tr.querySelector('.gate-number')));
         if (no === null) return;
-        let mark = null, tag = null;
+        let mark = null, tag = null, markShape = null;
         const pace = markTd && markTd.querySelector('span[title]');
         if (pace) { tag = pace.getAttribute('title'); mark = txt(pace); }
         else if (markTd) {
-          const circles = markTd.querySelectorAll('circle').length;
-          const path = markTd.querySelector('path');
-          if (circles >= 2) mark = '◎';
-          else if (circles === 1) mark = '○';
-          else if (path) mark = (path.getAttribute('fill') || 'none') === 'none' ? '△' : '▲';
+          // 既知の図形と完全一致した時だけ印を付ける。それ以外は図形情報を残して mark='不明'
+          const circles = Array.from(markTd.querySelectorAll('circle'));
+          const paths = Array.from(markTd.querySelectorAll('path'));
+          markShape = [...circles.map((c) => `circle r=${c.getAttribute('r')} fill=${c.getAttribute('fill')} stroke=${c.getAttribute('stroke')}`),
+            ...paths.map((p) => `path d=${p.getAttribute('d')} fill=${p.getAttribute('fill')} stroke=${p.getAttribute('stroke')}`)].join(' | ') || txt(markTd) || null;
+          const p0 = paths[0], fill = p0 ? (p0.getAttribute('fill') || 'none') : null, d = p0 ? p0.getAttribute('d') : null;
+          if (circles.length === 2 && !paths.length) mark = '◎';
+          else if (circles.length === 1 && !paths.length && (circles[0].getAttribute('fill') || 'none') === 'none') mark = '○';
+          else if (!circles.length && paths.length === 1 && d === 'M12 3L22 20H2L12 3Z' && fill !== 'none') mark = '▲';
+          else if (!circles.length && paths.length === 1 && d === 'M12 4L21 19H3Z' && fill === 'none') mark = '△';
+          else mark = markShape ? '不明' : null;
         }
         const bar = tr.querySelector('.score-bar-fill');
         const score = bar ? num(((bar.getAttribute('style') || '').match(/width:\s*([\d.]+)%/) || [])[1] ?? '') : null;
-        rows.push({ order: i + 1, mark, tag, horseNumber: no, horseName: txt(tr.querySelector('td[class*="col-horse"]')) || null,
+        rows.push({ order: i + 1, mark, tag, markShape: mark === '不明' ? markShape : null, horseNumber: no, horseName: txt(tr.querySelector('td[class*="col-horse"]')) || null,
           trend: txt(tr.querySelector('td.col-trend')) || null, score });
       });
       out.aiPrediction = { version: txt(card.querySelector('h2')) || null,
@@ -198,6 +204,11 @@
 
     out.horses = horses;
     out.runners = horses.length;
+    // 発走前（着順がまだ1頭も無い）ページのオッズは前売りオッズとして別欄へ。odds は確定オッズ専用にする
+    if (horses.length && horses.every((h) => h.finish === null && !h.finishStatus) && horses.some((h) => h.odds !== null)) {
+      for (const h of horses) { h.preOdds = h.odds; h.prePopularity = h.popularity; h.odds = null; h.popularity = null; }
+      out.preOddsCollectedAt = out.collectedAt;
+    }
     // 新馬戦などでSPが全頭空欄のレース
     out.spAvailable = horses.some((h) => h.sp !== null);
 
