@@ -1,6 +1,13 @@
 /* 巡回収集の制御（Manifest V3 service worker）。状態は chrome.storage.local に保存し、
    service worker が休止・再起動しても続きから再開する。広告の関門は回避せず、検知したら一時停止する。 */
 const BASE = 'https://keibanalysis.net/race/positionmap?raceid=';
+const BASE_RESULT = 'https://keibanalysis.net/race/result_race?raceid=';   // 中央の過去レース
+// 中央競馬: サイト上の競馬場コードは 74=東京 のみ確認済み。他場は 70〜79 と仮定して開催確認する（土・日・月のみ）
+const JRA_CODES = ['70', '71', '72', '73', '74', '75', '76', '77', '78', '79'];
+const isJra = (raceid) => JRA_CODES.includes(raceid.slice(8, 10));
+const todayYmd = () => { const d = new Date(); return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`; };
+// 中央の過去分は result_race、当日以降は positionmap（当日ページの形式は未確認）
+const pageUrl = (raceid) => (isJra(raceid) && raceid.slice(0, 8) < todayYmd() ? BASE_RESULT : BASE) + raceid;
 // NAR公式の競馬場コード（raceid の9-10桁目）。帯広(ばんえい)は対象外。
 // 開催確認はこの順に行う（開催の多い場を先に確認し、1場見つかればその日の開催場はリンクから判明する）
 const VENUES = [['36', '門別'], ['20', '大井'], ['27', '園田'], ['24', '名古屋'], ['23', '笠松'], ['22', '金沢'], ['31', '高知'],
@@ -138,7 +145,7 @@ async function loop() {
 
       const tabId = await ensureTab(st);
       const wait = waitPage(`ka:${item.raceid}`);
-      await chrome.tabs.update(tabId, { url: BASE + item.raceid });
+      await chrome.tabs.update(tabId, { url: pageUrl(item.raceid) });
       const data = await wait;
       st = await getState(); if (!st) break;
 
@@ -164,7 +171,7 @@ async function loop() {
           held.add(code);
           const queued = new Set(st.queue.map((q) => q.raceid));
           const more = data.sameDayRaceIds.filter((r) => r.slice(8, 10) === code && r !== item.raceid && !queued.has(r));
-          st.queue = st.queue.filter((q) => !(q.probe && q.raceid.slice(0, 8) === day && !held.has(q.raceid.slice(8, 10))));
+          st.queue = st.queue.filter((q) => !(q.probe && !q.jra && !item.jra && q.raceid.slice(0, 8) === day && !held.has(q.raceid.slice(8, 10))));
           st.queue.unshift(...more.map((r) => ({ raceid: r, probe: false })));
           // リンクに載っていないレースがある場合に備え、最終レースの次の番号も1つ確認する
           const last = Math.max(item.raceid.slice(10) | 0, ...more.map((r) => r.slice(10) | 0));
@@ -200,16 +207,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (settings.passiveCapture) { await saveRace(d); }
       }
     } else if (msg.type === 'start') {
-      const { startDate, endDate, venues, delaySec, skipCollected, enrichOdds: eo } = msg;
+      const { startDate, endDate, venues, delaySec, skipCollected, enrichOdds: eo, jra, jraAllDays } = msg;
       const order = VENUES.map(([c]) => c);
       const codes = venues && venues.length ? order.filter((c) => venues.includes(c)) : order;
       const queue = [];
-      for (const day of datesBetween(startDate, endDate)) for (const c of codes) queue.push({ raceid: `${day}${c}01`, probe: true });
+      for (const day of datesBetween(startDate, endDate)) {
+        for (const c of codes) queue.push({ raceid: `${day}${c}01`, probe: true });
+        const wd = new Date(+day.slice(0, 4), +day.slice(4, 6) - 1, +day.slice(6, 8)).getDay();
+        if (jra && (jraAllDays || [0, 1, 6].includes(wd))) for (const c of JRA_CODES) queue.push({ raceid: `${day}${c}01`, probe: true, jra: true });
+      }
       const prev = await getState();
       await setState({ running: true, paused: null, queue, tabId: prev && prev.tabId, delayMs: Math.max(3, delaySec) * 1000,
         skipCollected, enrichOdds: eo !== false, counts: { ok: 0, empty: 0, skipped: 0, timeout: 0, odds: 0 }, startedAt: new Date().toISOString(), log: [] });
       chrome.action.setBadgeText({ text: '' });
-      await log(`開始: ${startDate}〜${endDate} / ${codes.length}場`);
+      await log(`開始: ${startDate}〜${endDate} / 地方${codes.length}場${jra ? (jraAllDays ? '＋中央（全曜日）' : '＋中央（土日月）') : ''}`);
       loop();
     } else if (msg.type === 'stop') {
       const st = await getState(); if (st) { st.running = false; st.paused = null; await setState(st); await log('停止しました'); }

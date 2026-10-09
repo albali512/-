@@ -34,6 +34,9 @@
     let m = /\d{4}-\d{2}-\d{2}\s+(\S+)\s+\d+R/.exec(h4);
     if (m) venueName = m[1];
     if (!venueName) { m = /(\S+?)競馬\s*\d+R/.exec(og); if (m) venueName = m[1].replace(/^.*\s/, ''); }
+    if (!venueName) { m = /^(\S+)\s+\d+R/.exec(txt(doc.querySelector('.race-navi .course-dsp'))); if (m) venueName = m[1]; }
+    const JRA = ['札幌', '函館', '福島', '新潟', '東京', '中山', '中京', '京都', '阪神', '小倉'];
+    out.circuit = venueName && JRA.includes(venueName) ? 'JRA' : 'NAR';
     out.venueName = venueName;
     out.raceName = txt(doc.querySelector('#race-info .race-name')) || null;
     out.distance = num(txt(doc.querySelector('#race-info .race-data01')));
@@ -49,6 +52,12 @@
       if (mm) { try { out.stats = JSON.parse(mm[1]); } catch (e) { /* 形式違いは無視 */ } break; }
     }
 
+    // 予想4角位置がCSSルール(.position-pad-N{left:Xpx})で指定されている場合（中央の結果ページなど）
+    const padLeft = {};
+    doc.querySelectorAll('style').forEach((st) => {
+      const re = /\.position-pad-(\d+)\s*\{[^}]*?left:\s*([\d.\-]+)px/g; let mm;
+      while ((mm = re.exec(st.textContent || ''))) padLeft[mm[1]] = parseFloat(mm[2]);
+    });
     // 出馬表
     const horses = [];
     doc.querySelectorAll('#horse-data dl').forEach((dl) => {
@@ -62,6 +71,7 @@
       const present = dl.querySelector('dd.corner-position .present');
       let cornerPx = null;
       if (present) cornerPx = num((present.getAttribute('style') || '').match(/left:\s*([\d.\-]+)px/)?.[1] ?? '');
+      if (present && cornerPx === null) { const pc = /position-pad-(\d+)/.exec(present.className || ''); if (pc && padLeft[pc[1]] !== undefined) cornerPx = padLeft[pc[1]]; }
       const odds = dl.querySelectorAll('dd.odds-disp > span');
       const finishTxt = txt(dl.querySelector('dd.result-rank .rank'));
       const j1 = statCell(jockey[1]); const t1 = statCell(trainer[1]); const t2 = statCell(trainer[2]);
@@ -214,12 +224,24 @@
 
     // 同日の他レース（同じ日付で始まる raceid のみ）
     const ids = new Set();
-    doc.querySelectorAll('a[href*="positionmap?raceid="]').forEach((a) => {
+    doc.querySelectorAll('a[href*="positionmap?raceid="], a[href*="result_race?raceid="]').forEach((a) => {
       const r = /raceid=(\d{12})/.exec(a.getAttribute('href') || '');
       if (r && raceid && r[1].slice(0, 8) === raceid.slice(0, 8)) ids.add(r[1]);
     });
     out.sameDayRaceIds = Array.from(ids).sort();
 
+    // 払戻金（#payoff-layout。結果確定後のページ）: 券種ごとに 組番・払戻(円)・人気
+    out.payouts = null;
+    const pay = doc.querySelector('#payoff-layout');
+    if (pay) {
+      out.payouts = {};
+      pay.querySelectorAll('li > dl').forEach((dl) => {
+        const kind = txt(dl.querySelector('dt')); if (!kind) return;
+        out.payouts[kind] = Array.from(dl.querySelectorAll('dd .line')).map((ln) => ({
+          combination: txt(ln.querySelector('.num')), yen: num(txt(ln.querySelector('.payoff'))), popularity: num(txt(ln.querySelector('.pop'))) }));
+      });
+      if (!Object.keys(out.payouts).length) out.payouts = null;
+    }
     // 広告（オファーウォール）で遮られているか
     out.blocked = !horses.length && !!doc.querySelector('.fc-consent-root, .fc-dialog-container, iframe[src*="fundingchoices"], .fc-ab-root');
     if (!horses.length) out.status = out.blocked ? 'blocked' : 'empty';

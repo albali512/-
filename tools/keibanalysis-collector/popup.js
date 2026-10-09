@@ -10,7 +10,7 @@ async function init() {
   const y = new Date(); y.setDate(y.getDate() - 1);
   const saved = (await chrome.storage.local.get('settings')).settings || {};
   $('start').value = saved.start || fmt(y); $('end').value = saved.end || fmt(y);
-  $('delay').value = saved.delay || 8; $('skip').checked = saved.skip !== false; $('passive').checked = !!saved.passiveCapture; $('odds').checked = saved.enrichOdds !== false;
+  $('delay').value = saved.delay || 8; $('skip').checked = saved.skip !== false; $('passive').checked = !!saved.passiveCapture; $('odds').checked = saved.enrichOdds !== false; $('jra').checked = !!saved.jra; $('jraAll').checked = !!saved.jraAllDays;
   const venues = await chrome.runtime.sendMessage({ type: 'venues' });
   for (const [code, name] of venues) {
     const l = document.createElement('label');
@@ -24,7 +24,7 @@ function selectedVenues() { return Array.from(document.querySelectorAll('#venues
 
 async function saveSettings() {
   await chrome.storage.local.set({ settings: { start: $('start').value, end: $('end').value, delay: +$('delay').value,
-    skip: $('skip').checked, passiveCapture: $('passive').checked, enrichOdds: $('odds').checked, venues: selectedVenues() } });
+    skip: $('skip').checked, passiveCapture: $('passive').checked, enrichOdds: $('odds').checked, jra: $('jra').checked, jraAllDays: $('jraAll').checked, venues: selectedVenues() } });
 }
 
 async function render() {
@@ -67,7 +67,7 @@ $('startBtn').onclick = async () => {
   await saveSettings();
   if ($('start').value > $('end').value) { alert('期間の指定を確認してください'); return; }
   await chrome.runtime.sendMessage({ type: 'start', startDate: $('start').value, endDate: $('end').value, venues: selectedVenues(),
-    delaySec: +$('delay').value, skipCollected: $('skip').checked, enrichOdds: $('odds').checked });
+    delaySec: +$('delay').value, skipCollected: $('skip').checked, enrichOdds: $('odds').checked, jra: $('jra').checked, jraAllDays: $('jraAll').checked });
 };
 $('todayBtn').onclick = async () => {
   // 当日ページにだけある AI予想・騎手の対戦成績・オッズ帯別3着内率 を発走前に保存する用途。
@@ -75,7 +75,7 @@ $('todayBtn').onclick = async () => {
   const t = fmt(new Date()); $('start').value = t; $('end').value = t;
   await saveSettings();
   await chrome.runtime.sendMessage({ type: 'start', startDate: t, endDate: t, venues: selectedVenues(),
-    delaySec: +$('delay').value, skipCollected: false, enrichOdds: false });
+    delaySec: +$('delay').value, skipCollected: false, enrichOdds: false, jra: $('jra').checked, jraAllDays: $('jraAll').checked });
 };
 $('stopBtn').onclick = () => chrome.runtime.sendMessage({ type: 'stop' });
 $('resumeBtn').onclick = () => chrome.runtime.sendMessage({ type: 'resume' });
@@ -98,7 +98,7 @@ $('exJson').onclick = async () => {
 $('exCsv').onclick = async () => {
   const races = await loadRaces();
   if (!races.length) return;
-  const head = ['raceid', 'date', 'venueCode', 'venueName', 'raceNo', 'raceName', 'distance', 'runners', 'pageType', 'collectedAt', 'oddsSource', 'oddsTiming', 'oddsStatus',
+  const head = ['raceid', 'circuit', 'date', 'venueCode', 'venueName', 'raceNo', 'raceName', 'distance', 'runners', 'pageType', 'collectedAt', 'oddsSource', 'oddsTiming', 'oddsStatus',
     'horseNumber', 'frameNumber', 'horseName', 'sex', 'age', 'jockey', 'jockeyStat', 'jockeyPrize', 'weight', 'trainer', 'trainerStat', 'trainerPrize', 'trainerCol3', 'trainerCol3Prize',
     'sp', 'spRank', 'cornerPx', 'cornerOrder', 'popularity', 'odds', 'prePopularity', 'preOdds', 'preOddsCollectedAt', 'finish', 'finishStatus', 'spAvailable',
     ...SUP_KEYS.map((k) => `sup_${k}`), 'aiMark', 'aiTag', 'aiScore', 'aiConfidence', 'riderVsWin', 'riderVsLoss',
@@ -106,7 +106,7 @@ $('exCsv').onclick = async () => {
   const lines = [head.join(',')];
   for (const r of races) for (const h of r.horses) {
     const st = r.stats ? (r.stats[`${h.horseNumber}. ${h.horseName}`] || {}).stats || {} : {};
-    const row = [r.raceid, r.date, r.venueCode, r.venueName, r.raceNo, r.raceName, r.distance, r.runners, r.pageType, r.collectedAt, r.oddsSource, r.oddsTiming, r.oddsStatus,
+    const row = [r.raceid, r.circuit, r.date, r.venueCode, r.venueName, r.raceNo, r.raceName, r.distance, r.runners, r.pageType, r.collectedAt, r.oddsSource, r.oddsTiming, r.oddsStatus,
       h.horseNumber, h.frameNumber, h.horseName, h.sex, h.age, h.jockey, h.jockeyStat, h.jockeyPrize, h.weight, h.trainer, h.trainerStat, h.trainerPrize, h.trainerCol3, h.trainerCol3Prize,
       h.sp, h.spRank, h.cornerPx, h.cornerOrder, h.popularity, h.odds, h.prePopularity, h.preOdds, r.preOddsCollectedAt, h.finish, h.finishStatus, r.spAvailable,
       ...SUP_KEYS.map((k) => (h.superiority || {})[k]), h.aiMark, h.aiTag, h.aiScore, r.aiPrediction ? r.aiPrediction.confidence : null,
