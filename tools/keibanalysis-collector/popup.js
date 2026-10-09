@@ -2,6 +2,8 @@ const $ = (id) => document.getElementById(id);
 // 現地時間で YYYY-MM-DD（toISOString はUTC変換で日付がずれるため使わない）
 const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const dash = (s) => `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+// 騎手のオッズ帯別3着内（「3着内数/騎乗数」で出力）
+const OR_KEYS = ['〜1.9', '2.0〜9.9', '10〜19.9', '20〜29.9', '30〜99.9', '100〜'];
 const SUP_KEYS = ['斤量', '騎手', '最終角巧者', 'スタート巧者', '馬との相性', '馬番勝率', '先行力', '末脚', 'あがり', '調子'];
 
 async function init() {
@@ -67,6 +69,14 @@ $('startBtn').onclick = async () => {
   await chrome.runtime.sendMessage({ type: 'start', startDate: $('start').value, endDate: $('end').value, venues: selectedVenues(),
     delaySec: +$('delay').value, skipCollected: $('skip').checked, enrichOdds: $('odds').checked });
 };
+$('todayBtn').onclick = async () => {
+  // 当日ページにだけある AI予想・騎手の対戦成績・オッズ帯別3着内率 を発走前に保存する用途。
+  // 取得済みも取り直し（以前の値は消えず、発走前の値は保持される）、オッズ補完は行わない。
+  const t = fmt(new Date()); $('start').value = t; $('end').value = t;
+  await saveSettings();
+  await chrome.runtime.sendMessage({ type: 'start', startDate: t, endDate: t, venues: selectedVenues(),
+    delaySec: +$('delay').value, skipCollected: false, enrichOdds: false });
+};
 $('stopBtn').onclick = () => chrome.runtime.sendMessage({ type: 'stop' });
 $('resumeBtn').onclick = () => chrome.runtime.sendMessage({ type: 'resume' });
 $('all').onclick = () => document.querySelectorAll('#venues input').forEach((i) => { i.checked = true; });
@@ -91,14 +101,18 @@ $('exCsv').onclick = async () => {
   const head = ['raceid', 'date', 'venueCode', 'venueName', 'raceNo', 'raceName', 'distance', 'runners', 'pageType', 'collectedAt', 'oddsSource', 'oddsTiming', 'oddsStatus',
     'horseNumber', 'frameNumber', 'horseName', 'sex', 'age', 'jockey', 'jockeyStat', 'jockeyPrize', 'weight', 'trainer', 'trainerStat', 'trainerPrize', 'trainerCol3', 'trainerCol3Prize',
     'sp', 'spRank', 'cornerPx', 'cornerOrder', 'popularity', 'odds', 'finish', 'finishStatus', 'spAvailable',
-    ...SUP_KEYS.map((k) => `sup_${k}`), 'stat_持ち時計', 'stat_陣営', 'stat_潜在力', 'stat_総合力', 'stat_近走内容'];
+    ...SUP_KEYS.map((k) => `sup_${k}`), 'aiMark', 'aiTag', 'aiScore', 'aiConfidence', 'riderVsWin', 'riderVsLoss',
+    ...OR_KEYS.map((k) => `riderOdds_${k}`), 'stat_持ち時計', 'stat_陣営', 'stat_潜在力', 'stat_総合力', 'stat_近走内容'];
   const lines = [head.join(',')];
   for (const r of races) for (const h of r.horses) {
     const st = r.stats ? (r.stats[`${h.horseNumber}. ${h.horseName}`] || {}).stats || {} : {};
     const row = [r.raceid, r.date, r.venueCode, r.venueName, r.raceNo, r.raceName, r.distance, r.runners, r.pageType, r.collectedAt, r.oddsSource, r.oddsTiming, r.oddsStatus,
       h.horseNumber, h.frameNumber, h.horseName, h.sex, h.age, h.jockey, h.jockeyStat, h.jockeyPrize, h.weight, h.trainer, h.trainerStat, h.trainerPrize, h.trainerCol3, h.trainerCol3Prize,
       h.sp, h.spRank, h.cornerPx, h.cornerOrder, h.popularity, h.odds, h.finish, h.finishStatus, r.spAvailable,
-      ...SUP_KEYS.map((k) => (h.superiority || {})[k]), st['持ち時計'], st['陣営'], st['潜在力'], st['総合力'], st['近走内容']];
+      ...SUP_KEYS.map((k) => (h.superiority || {})[k]), h.aiMark, h.aiTag, h.aiScore, r.aiPrediction ? r.aiPrediction.confidence : null,
+      h.riderVsWin, h.riderVsLoss, ...OR_KEYS.map((k, i) => {
+        const o = (r.riderOddsRange || []).find((x) => x.horseNumber === h.horseNumber); const c = o && o.cells[i];
+        return c && c.starts !== null ? `${c.top3}/${c.starts}` : null; }), st['持ち時計'], st['陣営'], st['潜在力'], st['総合力'], st['近走内容']];
     lines.push(row.map(csvCell).join(','));
   }
   download(`keibanalysis_${races[0].raceid.slice(0, 8)}_${races[races.length - 1].raceid.slice(0, 8)}.csv`, '﻿' + lines.join('\n'), 'text/csv');

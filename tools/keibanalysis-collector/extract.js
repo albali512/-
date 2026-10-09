@@ -109,6 +109,93 @@
         if (i >= 0) h.superiority[k] = i + 1;
       }
     }
+    // --- 当日ページのみにある3項目 ---
+    // (1) AI予想: 印(◎○▲△)・馬番・馬名・スコア%、展開有利(🚀)・データ特注穴馬(⚡)
+    out.aiPrediction = null;
+    const card = doc.querySelector('.ai-prediction-card');
+    if (card) {
+      const rows = [];
+      card.querySelectorAll('table.prediction-table tr').forEach((tr, i) => {
+        const markTd = tr.querySelector('td.col-mark');
+        const no = num(txt(tr.querySelector('.gate-number')));
+        if (no === null) return;
+        let mark = null, tag = null;
+        const pace = markTd && markTd.querySelector('span[title]');
+        if (pace) { tag = pace.getAttribute('title'); mark = txt(pace); }
+        else if (markTd) {
+          const circles = markTd.querySelectorAll('circle').length;
+          const path = markTd.querySelector('path');
+          if (circles >= 2) mark = '◎';
+          else if (circles === 1) mark = '○';
+          else if (path) mark = (path.getAttribute('fill') || 'none') === 'none' ? '△' : '▲';
+        }
+        const bar = tr.querySelector('.score-bar-fill');
+        const score = bar ? num(((bar.getAttribute('style') || '').match(/width:\s*([\d.]+)%/) || [])[1] ?? '') : null;
+        rows.push({ order: i + 1, mark, tag, horseNumber: no, horseName: txt(tr.querySelector('td[class*="col-horse"]')) || null,
+          trend: txt(tr.querySelector('td.col-trend')) || null, score });
+      });
+      out.aiPrediction = { version: txt(card.querySelector('h2')) || null,
+        confidence: card.querySelectorAll('.tier-gauge .gauge-block.active').length,
+        confidenceMax: card.querySelectorAll('.tier-gauge .gauge-block').length, rows };
+    }
+    // 騎手の2つの表は、タブ切替用のHTML文字列としてスクリプト内にある（画面には未表示）。
+    // まず画面上の表を探し、無ければスクリプト内の文字列から取り出して解析する。
+    const findTable = (id) => {
+      const live = doc.querySelector(`table#${id}`);
+      if (live) return live;
+      for (const s of scripts) {
+        const i = s.indexOf(`<table id="${id}"`); if (i < 0) continue;
+        const j = s.indexOf('</table>', i); if (j < 0) continue;
+        const html = s.slice(i, j + 8).replace(/\\'/g, "'").replace(/\\"/g, '"').replace(/\\\//g, '/');
+        const parsed = new DOMParser().parseFromString(`<html><body>${html}</body></html>`, 'text/html');
+        const t = parsed.querySelector(`table#${id}`); if (t) return t;
+      }
+      return null;
+    };
+    const riderRowNo = (td) => num(txt(td.querySelector('.waku'))); // 行見出しの番号（馬番）
+    // (2) 騎手の対戦成績表 (#winLossTable): 行の騎手から見た 列の騎手との 先着-後着
+    out.riderWinLoss = null;
+    const wl = findTable('winLossTable');
+    if (wl) {
+      const heads = Array.from(wl.querySelectorAll('th')).slice(1).map(txt);
+      const rows = [];
+      wl.querySelectorAll('tbody tr').forEach((tr) => {
+        const tds = Array.from(tr.children); if (!tds.length) return;
+        const vs = [];
+        tds.slice(1).forEach((td, k) => {
+          const m2 = /(\d+)\s*-\s*(\d+)/.exec(txt(td));
+          if (m2) vs.push({ opponent: heads[k], win: +m2[1], loss: +m2[2], cls: td.className || null });
+        });
+        rows.push({ horseNumber: riderRowNo(tds[0]), rider: txt(tds[0].querySelector('div:not(.waku)')) || null, vs });
+      });
+      out.riderWinLoss = rows;
+    }
+    // (3) 騎手のオッズ帯別3着内率 (#oddsRangeTable)
+    out.riderOddsRange = null;
+    const orT = findTable('oddsRangeTable');
+    if (orT) {
+      const ranges = Array.from(orT.querySelectorAll('thead th')).slice(1).map(txt);
+      const rows = [];
+      orT.querySelectorAll('tbody tr').forEach((tr) => {
+        const tds = Array.from(tr.children); if (!tds.length) return;
+        const cells = tds.slice(1).map((td, k) => {
+          const m3 = /\(\s*(\d+)\s*\/\s*(\d+)\s*\)/.exec(txt(td)); const pct = /([\d.]+)%/.exec(txt(td));
+          return { range: ranges[k], top3: m3 ? +m3[1] : null, starts: m3 ? +m3[2] : null, rate: pct ? +pct[1] : null };
+        });
+        rows.push({ horseNumber: riderRowNo(tds[0]), rider: txt(tds[0].querySelector('.t-d-name')) || null,
+          oddsDisp: txt(tds[0].querySelector('.odds-disp')) || null, cells });
+      });
+      out.riderOddsRange = rows;
+    }
+    // 各馬に要約を付与（CSV用）
+    for (const h of horses) {
+      const a = out.aiPrediction && out.aiPrediction.rows.find((r) => r.horseNumber === h.horseNumber);
+      h.aiMark = a ? a.mark : null; h.aiTag = a ? a.tag : null; h.aiScore = a ? a.score : null;
+      const w = out.riderWinLoss && out.riderWinLoss.find((r) => r.horseNumber === h.horseNumber);
+      h.riderVsWin = w ? w.vs.reduce((s, x) => s + x.win, 0) : null;
+      h.riderVsLoss = w ? w.vs.reduce((s, x) => s + x.loss, 0) : null;
+    }
+
     out.horses = horses;
     out.runners = horses.length;
     // 新馬戦などでSPが全頭空欄のレース

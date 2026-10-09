@@ -39,8 +39,28 @@ async function isCollected(raceid) {
   return !!(r && r.status === 'ok');
 }
 
+// 当日ページにしか無い項目は、後から取り直したページに無くても以前の値を残す（発走前の値を保持）
+const KEEP = ['aiPrediction', 'riderWinLoss', 'riderOddsRange', 'stats'];
 async function saveRace(data) {
   const k = `race:${data.raceid}`;
+  const prev = (await chrome.storage.local.get(k))[k];
+  if (prev && prev.status === 'ok') {
+    for (const f of KEEP) {
+      const empty = data[f] === null || data[f] === undefined || (Array.isArray(data[f]) && !data[f].length) ||
+        (f === 'aiPrediction' && data[f] && !data[f].rows.length);
+      if (empty && prev[f]) { data[f] = prev[f]; data[`${f}CollectedAt`] = prev[`${f}CollectedAt`] || prev.collectedAt; }
+    }
+    if (prev.aiPrediction && data.aiPrediction === prev.aiPrediction) {
+      for (const h of data.horses) { const o = prev.horses.find((x) => x.horseNumber === h.horseNumber);
+        if (o) Object.assign(h, { aiMark: o.aiMark, aiTag: o.aiTag, aiScore: o.aiScore, riderVsWin: o.riderVsWin, riderVsLoss: o.riderVsLoss }); }
+    }
+    data.firstCollectedAt = prev.firstCollectedAt || prev.collectedAt;
+    if (!data.oddsSource && prev.oddsSource) {   // 補完済みオッズも残す
+      for (const h of data.horses) { const o = prev.horses.find((x) => x.horseNumber === h.horseNumber);
+        if (o && h.odds === null) { h.odds = o.odds; h.popularity = o.popularity; } }
+      for (const f of ['oddsSource', 'oddsTiming', 'oddsStatus', 'oddsUrl', 'oddsCollectedAt', 'oddsMatched', 'oddsNameMismatch']) data[f] = prev[f];
+    }
+  }
   const idx = (await chrome.storage.local.get('raceIndex')).raceIndex || [];
   if (!idx.includes(data.raceid)) idx.push(data.raceid);
   await chrome.storage.local.set({ [k]: data, raceIndex: idx });
