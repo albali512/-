@@ -35,7 +35,13 @@ keibanalysis.net の展開予想ページ（`/race/positionmap?raceid=...`）を
 - 収集用タブで普段どおり操作して閲覧できる状態にしてから、「再開」を押してください。
 - 拡張機能は広告を回避しません。
 
-**人気・オッズの補完（netkeiba）**
+**人気・オッズ・払戻の補完（結果ページ）**
+
+- 地方の過去レースは、まず keibanalysis の結果ページ `/race/result_race?raceid=...` から人気・確定オッズ・払戻を補完します（`oddsSource`・`payoutSource` = `keibanalysis_result`）。
+- 有利な馬・コース適性は、展開予想ページ側（10項目）の値を残します（結果ページは8項目のため）。
+- 結果ページで取れなかった場合だけ、以下の netkeiba を使います。
+
+**netkeiba による補完（予備）**
 
 - 「人気・オッズが無いレースは netkeiba の結果ページから補完する」がオン（初期値）の場合の動きです。
 - keibanalysis のページに人気・オッズが無いレース（過去分）では、続けて同じタブで netkeiba（地方競馬）の結果ページ `https://nar.netkeiba.com/race/result.html?race_id=...` を開きます。

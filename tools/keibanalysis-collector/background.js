@@ -21,7 +21,8 @@ const nkRaceId = (raceid) => NK_CODE[raceid.slice(8, 10)]
   ? `${raceid.slice(0, 4)}${NK_CODE[raceid.slice(8, 10)]}${raceid.slice(4, 8)}${raceid.slice(10, 12)}` : null;
 const needsOdds = (r) => r && r.status === 'ok' && !r.oddsSource && r.horses.length && r.horses.every((h) => h.odds === null);
 // 地方の結果確定レースで払戻が無いもの（地方の過去ページには払戻が無いため netkeiba から取る）
-const needsPayouts = (r) => r && r.status === 'ok' && r.circuit !== 'JRA' && !r.payouts && r.horses.some((h) => h.finish !== null);
+const needsPayouts = (r) => r && r.status === 'ok' && r.circuit !== 'JRA' && !r.payouts &&
+  (r.horses.some((h) => h.finish !== null) || r.raceid.slice(0, 8) < todayYmd());
 const needsNk = (r) => needsOdds(r) || needsPayouts(r);
 const waiters = new Map(); // raceid -> resolve
 
@@ -95,6 +96,43 @@ function waitPage(key) {
   });
 }
 
+// keibanalysis の結果ページ(result_race)で 人気・オッズ・払戻 を補完する（地方・中央共通）。成功なら true。
+async function enrichFromResult(st, race) {
+  const tabId = await ensureTab(st);
+  const wait = waitPage(`ka:${race.raceid}`);
+  await chrome.tabs.update(tabId, { url: BASE_RESULT + race.raceid });
+  const d = await wait;
+  if (!d || d.status !== 'ok') return false;
+  const byNo = new Map(d.horses.map((h) => [h.horseNumber, h]));
+  let matched = 0;
+  const fillOdds = needsOdds(race);
+  for (const h of race.horses) {
+    const r = byNo.get(h.horseNumber); if (!r) continue; matched++;
+    if (fillOdds) { h.odds = r.odds; h.popularity = r.popularity; }
+    if (h.finish === null && r.finish !== null) { h.finish = r.finish; h.finishStatus = r.finishStatus; }
+  }
+  if (!matched) return false;
+  const now = new Date().toISOString();
+  if (fillOdds && race.horses.some((h) => h.odds !== null)) {
+    Object.assign(race, { oddsSource: 'keibanalysis_result', oddsTiming: 'final', oddsUrl: BASE_RESULT + race.raceid,
+      oddsCollectedAt: now, oddsMatched: matched, oddsNameMismatch: 0, oddsStatus: 'ok' });
+  }
+  if (!race.payouts && d.payouts) {
+    race.payouts = d.payouts; race.payoutSource = 'keibanalysis_result'; race.payoutCollectedAt = now;
+    const w = (d.payouts['単勝'] || [])[0]; const first = race.horses.find((h) => h.finish === 1);
+    race.payoutCheck = w && first ? (String(first.horseNumber) === String(w.combination) ? 'ok' : 'winner_mismatch') : null;
+  }
+  return !needsNk(race);
+}
+
+// 補完の入口: まず keibanalysis の結果ページ、足りなければ netkeiba
+async function enrich(st, race) {
+  if (!isJra(race.raceid) && await enrichFromResult(st, race)) return true;
+  if (!needsNk(race)) return true;
+  await sleep(st.delayMs + Math.floor(Math.random() * 3000));
+  return enrichOdds(st, race);
+}
+
 // netkeiba の結果ページで人気・単勝オッズ（確定）を補完する。成功/失敗の別を返す。
 async function enrichOdds(st, race) {
   const nk = nkRaceId(race.raceid);
@@ -136,7 +174,7 @@ async function loop() {
       if (st.skipCollected && await isCollected(item.raceid)) {
         const k = `race:${item.raceid}`; const saved = (await chrome.storage.local.get(k))[k];
         if (st.enrichOdds && needsNk(saved)) {          // 取得済みでもオッズが無ければ補完だけ行う
-          const ok = await enrichOdds(st, saved); await saveRace(saved);
+          const ok = await enrich(st, saved); await saveRace(saved);
           st = await getState(); st.counts.odds = (st.counts.odds || 0) + (ok ? 1 : 0); await setState(st);
           await log(`${item.raceid} オッズ補完 ${ok ? '成功' : '失敗(' + saved.oddsStatus + ')'}`);
           await sleep(st.delayMs + Math.floor(Math.random() * 3000));
@@ -169,7 +207,7 @@ async function loop() {
         if (st.enrichOdds && needsNk(data)) {
           await setState(st);
           await sleep(st.delayMs + Math.floor(Math.random() * 3000));
-          const ok = await enrichOdds(st, data);
+          const ok = await enrich(st, data);
           st = await getState(); st.counts.odds = (st.counts.odds || 0) + (ok ? 1 : 0);
           if (!ok) await log(`${item.raceid} オッズ補完 失敗(${data.oddsStatus})`);
         }
